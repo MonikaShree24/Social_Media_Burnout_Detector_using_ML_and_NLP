@@ -1,1 +1,541 @@
+# ============================================================
+# SOCIAL MEDIA BURNOUT DETECTION USING ML + NLP
+# FULL UPDATED GOOGLE COLAB CODE
+# ============================================================
 
+# INSTALL REQUIRED LIBRARIES
+!pip install imbalanced-learn
+
+# ============================================================
+# IMPORT LIBRARIES
+# ============================================================
+
+import pandas as pd
+import numpy as np
+
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import SVC
+
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    confusion_matrix,
+    roc_curve,
+    auc,
+    classification_report
+)
+
+from sklearn.preprocessing import LabelEncoder
+from imblearn.over_sampling import SMOTE
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# ============================================================
+# CREATE SAMPLE DATASET
+# ============================================================
+
+data = {
+    "usage_hours": [6,8,2,10,7,5,9,3,11,4,6,8,9,2,7],
+    "login_frequency": [20,25,5,30,18,15,28,7,35,10,19,24,27,6,21],
+    "sleep_hours": [5,4,8,3,5,6,4,8,2,7,5,4,3,8,5],
+    "stress": [8,9,2,10,7,5,9,2,10,4,7,8,9,3,7],
+    "anxiety": [7,8,2,9,6,4,8,2,9,3,6,7,8,2,6],
+    "fatigue": [8,9,3,10,7,5,9,3,10,4,7,8,9,2,7],
+    "posts": [
+        "I feel exhausted and stressed",
+        "Social media is draining me",
+        "I am happy and relaxed",
+        "I cannot handle pressure anymore",
+        "Feeling tired and anxious",
+        "Today was okay",
+        "I am mentally exhausted",
+        "Feeling calm and peaceful",
+        "Burned out completely",
+        "I feel normal today",
+        "Stress is affecting my life",
+        "Too much anxiety nowadays",
+        "Emotionally drained",
+        "Happy and motivated",
+        "Need a break from social media"
+    ],
+    "burnout": [
+        "High","High","Low","High","Moderate",
+        "Low","High","Low","High","Low",
+        "Moderate","High","High","Low","Moderate"
+    ]
+}
+
+df = pd.DataFrame(data)
+
+# DUPLICATE DATA FOR BETTER TRAINING
+df = pd.concat([df]*20, ignore_index=True)
+
+# ============================================================
+# FEATURE ENGINEERING
+# ============================================================
+
+# Mood Score
+df["mood_score"] = np.maximum(
+    1,
+    10 - ((df["stress"] + df["anxiety"]) / 2)
+)
+
+# Usage Score
+df["usage_score"] = np.minimum(
+    10,
+    df["usage_hours"] * df["login_frequency"] / 10
+)
+
+# Sleep Score
+df["sleep_score"] = np.maximum(
+    0,
+    8 - df["sleep_hours"]
+)
+
+# Stress Index
+df["stress_index"] = (
+    df["stress"] +
+    df["anxiety"] +
+    df["fatigue"]
+) / 3
+
+# Burnout Score
+df["burnout_score"] = (
+    0.3 * df["stress_index"] +
+    0.2 * df["usage_score"] +
+    0.2 * df["sleep_score"] -
+    0.1 * df["mood_score"]
+)
+
+# ============================================================
+# TF-IDF FEATURE EXTRACTION
+# ============================================================
+
+tfidf = TfidfVectorizer(stop_words='english')
+
+text_features = tfidf.fit_transform(df["posts"])
+
+text_df = pd.DataFrame(
+    text_features.toarray(),
+    columns=tfidf.get_feature_names_out()
+)
+
+# ============================================================
+# COMBINE FEATURES
+# ============================================================
+
+numerical_features = df[[
+    "usage_hours",
+    "login_frequency",
+    "sleep_hours",
+    "stress",
+    "anxiety",
+    "fatigue",
+    "mood_score",
+    "usage_score",
+    "sleep_score",
+    "stress_index",
+    "burnout_score"
+]]
+
+X = pd.concat(
+    [numerical_features.reset_index(drop=True),
+     text_df.reset_index(drop=True)],
+    axis=1
+)
+
+# ============================================================
+# LABEL ENCODING
+# ============================================================
+
+le = LabelEncoder()
+
+y = le.fit_transform(df["burnout"])
+
+# ============================================================
+# APPLY SMOTE
+# ============================================================
+
+smote = SMOTE(
+    random_state=42,
+    k_neighbors=2
+)
+
+X_resampled, y_resampled = smote.fit_resample(X, y)
+
+# ============================================================
+# TRAIN TEST SPLIT
+# ============================================================
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X_resampled,
+    y_resampled,
+    test_size=0.2,
+    random_state=42
+)
+
+# ============================================================
+# TRAIN MODELS
+# ============================================================
+
+rf_model = RandomForestClassifier(random_state=42)
+
+svm_model = SVC(probability=True)
+
+lr_model = LogisticRegression()
+
+rf_model.fit(X_train, y_train)
+svm_model.fit(X_train, y_train)
+lr_model.fit(X_train, y_train)
+
+# ============================================================
+# PREDICTIONS
+# ============================================================
+
+rf_pred = rf_model.predict(X_test)
+svm_pred = svm_model.predict(X_test)
+lr_pred = lr_model.predict(X_test)
+
+# ============================================================
+# EVALUATION FUNCTION
+# ============================================================
+
+def evaluate_model(name, y_true, y_pred):
+
+    print(f"\n{name} Performance")
+    print("-" * 40)
+
+    accuracy = accuracy_score(y_true, y_pred)
+
+    precision = precision_score(
+        y_true,
+        y_pred,
+        average='weighted'
+    )
+
+    recall = recall_score(
+        y_true,
+        y_pred,
+        average='weighted'
+    )
+
+    f1 = f1_score(
+        y_true,
+        y_pred,
+        average='weighted'
+    )
+
+    print("Accuracy :", accuracy)
+    print("Precision:", precision)
+    print("Recall   :", recall)
+    print("F1 Score :", f1)
+
+    print("\nClassification Report:")
+    print(classification_report(y_true, y_pred))
+
+    return accuracy
+
+# ============================================================
+# MODEL EVALUATION
+# ============================================================
+
+rf_acc = evaluate_model(
+    "Random Forest",
+    y_test,
+    rf_pred
+)
+
+svm_acc = evaluate_model(
+    "SVM",
+    y_test,
+    svm_pred
+)
+
+lr_acc = evaluate_model(
+    "Logistic Regression",
+    y_test,
+    lr_pred
+)
+
+# ============================================================
+# CONFUSION MATRIX
+# ============================================================
+
+cm = confusion_matrix(y_test, rf_pred)
+
+plt.figure(figsize=(6,5))
+
+sns.heatmap(
+    cm,
+    annot=True,
+    fmt='d',
+    cmap='Blues'
+)
+
+plt.title("Confusion Matrix - Random Forest")
+plt.xlabel("Predicted")
+plt.ylabel("Actual")
+
+plt.show()
+
+# ============================================================
+# ROC CURVE
+# ============================================================
+
+rf_probs = rf_model.predict_proba(X_test)
+
+fpr, tpr, _ = roc_curve(
+    y_test,
+    rf_probs[:,1],
+    pos_label=1
+)
+
+roc_auc = auc(fpr, tpr)
+
+plt.figure(figsize=(6,5))
+
+plt.plot(
+    fpr,
+    tpr,
+    label=f"AUC = {roc_auc:.2f}"
+)
+
+plt.plot([0,1],[0,1],'--')
+
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+
+plt.title("ROC Curve")
+
+plt.legend()
+
+plt.show()
+
+# ============================================================
+# ACCURACY COMPARISON GRAPH
+# ============================================================
+
+models = [
+    "Random Forest",
+    "SVM",
+    "Logistic Regression"
+]
+
+accuracies = [
+    rf_acc,
+    svm_acc,
+    lr_acc
+]
+
+plt.figure(figsize=(7,5))
+
+bars = plt.bar(models, accuracies)
+
+plt.ylim(0,1)
+
+plt.ylabel("Accuracy")
+
+plt.title("Model Accuracy Comparison")
+
+for bar in bars:
+
+    yval = bar.get_height()
+
+    plt.text(
+        bar.get_x() + 0.1,
+        yval + 0.01,
+        round(yval,2)
+    )
+
+plt.show()
+
+# ============================================================
+# FEATURE IMPORTANCE GRAPH
+# ============================================================
+
+importance = rf_model.feature_importances_
+
+feature_names = X.columns
+
+importance_df = pd.DataFrame({
+    "Feature": feature_names,
+    "Importance": importance
+})
+
+importance_df = importance_df.sort_values(
+    by="Importance",
+    ascending=False
+).head(10)
+
+plt.figure(figsize=(8,6))
+
+sns.barplot(
+    x="Importance",
+    y="Feature",
+    data=importance_df
+)
+
+plt.title("Top Feature Importances")
+
+plt.show()
+
+# ============================================================
+# SAMPLE PREDICTION
+# ============================================================
+
+sample = X_test.iloc[[0]]
+
+prediction = rf_model.predict(sample)
+
+print("\nPredicted Burnout Level:")
+print(le.inverse_transform(prediction))
+
+# ============================================================
+# REAL-TIME INTERACTIVE PREDICTION SYSTEM
+# ============================================================
+
+while True:
+
+    print("\n========== SOCIAL MEDIA BURNOUT DETECTION ==========")
+
+    # USER INPUTS
+    usage_hours = float(input("Enter daily usage hours: "))
+    login_frequency = int(input("Enter login frequency per day: "))
+    sleep_hours = float(input("Enter sleep hours: "))
+
+    stress = int(input("Enter stress level (1-10): "))
+    anxiety = int(input("Enter anxiety level (1-10): "))
+    fatigue = int(input("Enter fatigue level (1-10): "))
+
+    post = input("Enter recent social media post/comment: ")
+
+    # ============================================================
+    # FEATURE ENGINEERING
+    # ============================================================
+
+    mood_score = max(
+        1,
+        10 - ((stress + anxiety) / 2)
+    )
+
+    usage_score = min(
+        10,
+        usage_hours * login_frequency / 10
+    )
+
+    sleep_score = max(
+        0,
+        8 - sleep_hours
+    )
+
+    stress_index = (
+        stress +
+        anxiety +
+        fatigue
+    ) / 3
+
+    burnout_score = (
+        0.3 * stress_index +
+        0.2 * usage_score +
+        0.2 * sleep_score -
+        0.1 * mood_score
+    )
+
+    # ============================================================
+    # CREATE INPUT DATA
+    # ============================================================
+
+    custom_data = pd.DataFrame({
+        "usage_hours": [usage_hours],
+        "login_frequency": [login_frequency],
+        "sleep_hours": [sleep_hours],
+        "stress": [stress],
+        "anxiety": [anxiety],
+        "fatigue": [fatigue],
+        "mood_score": [mood_score],
+        "usage_score": [usage_score],
+        "sleep_score": [sleep_score],
+        "stress_index": [stress_index],
+        "burnout_score": [burnout_score]
+    })
+
+    # TF-IDF TRANSFORM
+    text_features = tfidf.transform([post])
+
+    text_df = pd.DataFrame(
+        text_features.toarray(),
+        columns=tfidf.get_feature_names_out()
+    )
+
+    # COMBINE FEATURES
+    final_input = pd.concat(
+        [custom_data.reset_index(drop=True),
+         text_df.reset_index(drop=True)],
+        axis=1
+    )
+
+    # MATCH TRAINING COLUMNS
+    final_input = final_input.reindex(
+        columns=X.columns,
+        fill_value=0
+    )
+
+    # ============================================================
+    # PREDICTION
+    # ============================================================
+
+    prediction = rf_model.predict(final_input)
+
+    result = le.inverse_transform(prediction)[0]
+
+    # ============================================================
+    # OUTPUT RESULT
+    # ============================================================
+
+    print("\n========== PREDICTION RESULT ==========")
+    print("Predicted Burnout Level:", result)
+
+    # ============================================================
+    # RECOMMENDATION SYSTEM
+    # ============================================================
+
+    if result == "High":
+
+        print("\nRecommendation:")
+        print("- Reduce social media usage")
+        print("- Take regular breaks")
+        print("- Maintain proper sleep")
+        print("- Practice stress management")
+
+    elif result == "Moderate":
+
+        print("\nRecommendation:")
+        print("- Balance online and offline activities")
+        print("- Monitor screen time")
+        print("- Maintain healthy habits")
+
+    else:
+
+        print("\nRecommendation:")
+        print("- Burnout level is low")
+        print("- Continue healthy digital habits")
+
+    # ============================================================
+    # CONTINUE OPTION
+    # ============================================================
+
+    choice = input(
+        "\nDo you want to test another user? (yes/no): "
+    )
+
+    if choice.lower() != "yes":
+
+        print("\nExiting Burnout Detection System...")
+        break
